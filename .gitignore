@@ -1,0 +1,16 @@
+# Отчёты, генерируемые скриптом
+report.json
+report.csv
+*.csv
+*.json
+
+# Логи
+*.log
+sample_auth.log
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
