@@ -8,19 +8,25 @@ IP и помечает brute-force атаки по скользящему окн
 Только стандартная библиотека Python. Запуск:
     python logguard.py sample_auth.log
     python logguard.py sample_auth.log --window 5 --threshold 3 --csv report.csv
+    python logguard.py sample_auth.log --json report.json
 """
 
 import argparse
 import csv
+import json
 import re
 import sys
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timedelta
 
 LINE_RE = re.compile(
     r"^(?P<month>\w{3})\s+(?P<day>\d{1,2})\s"
     r"(?P<time>\d{2}:\d{2}:\d{2})\s"
-    r"(?P<host>\S+)\s+sshd\[(?P<pid>\d+)\]:\s+"
+    r"(?P<host>\S+)\s+sshd
+$$
+(?P<pid>\d+)
+$$
+:\s+"
     r"Failed password for (?:invalid user )?(?P<user>\S+) "
     r"from (?P<ip>\d{1,3}(?:\.\d{1,3}){3}) port (?P<port>\d+) ssh2"
 )
@@ -59,7 +65,7 @@ def analyze(events, window_min, threshold):
         users = {u for _, u in evs}
         first, last = evs[0][0], evs[-1][0]
         brute = False
-        window = __import__("datetime").timedelta(minutes=window_min)
+        window = timedelta(minutes=window_min)
         for i, (ts, _) in enumerate(evs):
             count = sum(1 for t, _ in evs[i:] if t - ts <= window)
             if count >= threshold:
@@ -75,6 +81,25 @@ def analyze(events, window_min, threshold):
     return stats
 
 
+def save_report_json(stats, path):
+    """Сохраняет отчёт в JSON-файл."""
+    report = []
+    for ip, s in sorted(stats.items(), key=lambda x: -x[1]["fails"]):
+        report.append({
+            "ip": ip,
+            "failed_attempts": s["fails"],
+            "users": s["users"],
+            "first_seen": s["first"].isoformat(timespec="seconds"),
+            "last_seen": s["last"].isoformat(timespec="seconds"),
+            "brute_force": s["brute"],
+        })
+
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(report, fh, ensure_ascii=False, indent=2)
+
+    print(f"\n[+] JSON-отчёт сохранён: {path}")
+
+
 def main():
     ap = argparse.ArgumentParser(description="SSH failed-login log analyzer")
     ap.add_argument("logfile", nargs="?", default="sample_auth.log")
@@ -83,6 +108,7 @@ def main():
     ap.add_argument("--threshold", type=int, default=5,
                     help="попыток в окне для brute-force (по умолчанию 5)")
     ap.add_argument("--csv", help="путь для сохранения отчёта CSV")
+    ap.add_argument("--json", help="путь для сохранения отчёта JSON")
     args = ap.parse_args()
 
     try:
@@ -118,6 +144,9 @@ def main():
                             s["last"].isoformat(timespec="seconds"),
                             "yes" if s["brute"] else "no"])
         print(f"\nОтчёт сохранён: {args.csv}")
+
+    if args.json:
+        save_report_json(stats, args.json)
 
 
 if __name__ == "__main__":
